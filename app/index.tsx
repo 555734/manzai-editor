@@ -1,231 +1,138 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { useLocalSearchParams, useRouter } from 'expo-router';
-import { ChevronLeft, Clock, MoveHorizontal, Trash2 } from 'lucide-react-native';
-import React, { useEffect, useRef, useState } from 'react';
+import { useFocusEffect, useRouter } from 'expo-router';
+import { ChevronRight, Plus, Trash2 } from 'lucide-react-native';
+import React, { useCallback, useState } from 'react';
 import {
     Alert,
     FlatList,
-    KeyboardAvoidingView,
-    Platform,
-    SafeAreaView,
     StatusBar,
     StyleSheet,
     Text,
-    TextInput,
     TouchableOpacity,
     View
 } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 
-// --- 定数・型定義 ---
-const ROLES = {
-    BOKE: { id: 'boke', label: 'ボケ', color: '#E3F2FD', textColor: '#1565C0', align: 'flex-start' },
-    TSUKKOMI: { id: 'tsukkomi', label: 'ツッコミ', color: '#FFEBEE', textColor: '#C62828', align: 'flex-end' },
-    ACTION: { id: 'action', label: 'ト書き', color: '#F5F5F5', textColor: '#616161', align: 'center' },
+type NetaSummary = {
+    id: string;
+    title: string;
+    updatedAt: number;
 };
 
-// 時間計算ロジック
-const calculateDuration = (text, type) => {
-    if (type === 'action') return 3;
-    const charPerSec = 5;
-    return Math.ceil(text.length / charPerSec);
-};
-
-// 時間フォーマット
-const formatTime = (seconds) => {
-    const m = Math.floor(seconds / 60);
-    const s = seconds % 60;
-    return `${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`;
-};
-
-export default function EditorScreen() {
+export default function IndexScreen() {
     const router = useRouter();
-    const { id } = useLocalSearchParams(); // 前の画面からIDを受け取る
-    const STORAGE_KEY = `manzai_script_${id}`; // 保存キーをIDごとに個別化
+    const [netaList, setNetaList] = useState<NetaSummary[]>([]);
 
-    const [lines, setLines] = useState([]);
-    const [inputText, setInputText] = useState('');
-    const [currentRole, setCurrentRole] = useState('boke');
+    // 画面が表示されるたびにデータを読み込む
+    useFocusEffect(
+        useCallback(() => {
+            loadNetaList();
+        }, [])
+    );
 
-    const flatListRef = useRef(null);
-    const totalDuration = lines.reduce((acc, line) => acc + line.duration, 0);
+    const loadNetaList = async () => {
+        try {
+            const keys = await AsyncStorage.getAllKeys();
+            const scriptKeys = keys.filter(k => k.startsWith('manzai_script_'));
 
-    // タイトル表示用（1行目のテキスト、なければ「無題」）
-    const displayTitle = lines.length > 0 ? lines[0].text : '新規ネタ作成中...';
+            const items = await AsyncStorage.multiGet(scriptKeys);
 
-    // --- 保存・読み込みロジック ---
+            const list: NetaSummary[] = items.map(([key, value]) => {
+                const id = key.replace('manzai_script_', '');
+                const lines = value ? JSON.parse(value) : [];
+                // 1行目をタイトルにする。なければ「無題」
+                const title = lines.length > 0 ? lines[0].text : '無題のネタ';
+                return {
+                    id,
+                    title,
+                    updatedAt: parseInt(id) || 0, // IDがタイムスタンプの場合
+                };
+            });
 
-    // 1. 画面を開いた時にデータを読み込む
-    useEffect(() => {
-        const loadData = async () => {
-            try {
-                if (!id) return; // IDがない場合は何もしない
-                const jsonValue = await AsyncStorage.getItem(STORAGE_KEY);
-                if (jsonValue != null) {
-                    setLines(JSON.parse(jsonValue));
-                }
-            } catch (e) {
-                console.error("読み込みエラー", e);
-            }
-        };
-        loadData();
-    }, [id]);
-
-    // 2. データが変更されるたびに自動保存する
-    useEffect(() => {
-        const saveData = async () => {
-            try {
-                if (!id) return;
-                const jsonValue = JSON.stringify(lines);
-                await AsyncStorage.setItem(STORAGE_KEY, jsonValue);
-            } catch (e) {
-                console.error("保存エラー", e);
-            }
-        };
-        saveData();
-    }, [lines, id]);
-
-    const handleAddLine = () => {
-        if (!inputText.trim()) return;
-
-        const newLine = {
-            id: Date.now().toString(),
-            type: currentRole,
-            text: inputText,
-            duration: calculateDuration(inputText, currentRole),
-        };
-
-        setLines([...lines, newLine]);
-        setInputText('');
-
-        if (currentRole === 'boke') setCurrentRole('tsukkomi');
-        if (currentRole === 'tsukkomi') setCurrentRole('boke');
-
-        setTimeout(() => flatListRef.current?.scrollToEnd({ animated: true }), 100);
+            // 新しい順に並び替え
+            list.sort((a, b) => b.updatedAt - a.updatedAt);
+            setNetaList(list);
+        } catch (e) {
+            console.error(e);
+        }
     };
 
-    const handleDeleteLine = (id) => {
-        setLines(lines.filter(line => line.id !== id));
+    const handleCreateNew = () => {
+        const newId = Date.now().toString();
+        router.push({ pathname: '/editor', params: { id: newId } });
     };
 
-    const handleClearAll = () => {
-        Alert.alert(
-            "全消去",
-            "このネタの中身を全て消しますか？",
-            [
-                { text: "キャンセル", style: "cancel" },
-                {
-                    text: "消去",
-                    style: "destructive",
-                    onPress: () => setLines([])
-                }
-            ]
-        );
+    const handlePressItem = (id: string) => {
+        router.push({ pathname: '/editor', params: { id } });
     };
 
-    const renderItem = ({ item }) => {
-        const roleConfig = ROLES[item.type.toUpperCase()];
-        const isAction = item.type === 'action';
+    const handleDeleteItem = (id: string) => {
+        Alert.alert('削除', 'このネタを削除しますか？', [
+            { text: 'キャンセル', style: 'cancel' },
+            {
+                text: '削除',
+                style: 'destructive',
+                onPress: async () => {
+                    await AsyncStorage.removeItem(`manzai_script_${id}`);
+                    loadNetaList(); // リスト更新
+                },
+            },
+        ]);
+    };
 
-        return (
-            <View style={[styles.lineWrapper, { justifyContent: roleConfig.align }]}>
-                {!isAction && (
-                    <Text style={styles.roleLabel}>{roleConfig.label}</Text>
-                )}
-                <View style={[styles.bubble, { backgroundColor: roleConfig.color }]}>
-                    <Text style={[styles.bubbleText, { color: roleConfig.textColor, fontStyle: isAction ? 'italic' : 'normal' }]}>
-                        {isAction ? `（${item.text}）` : item.text}
-                    </Text>
-                </View>
-                <View style={styles.metaContainer}>
-                    <Text style={styles.durationText}>{item.duration}秒</Text>
-                    <TouchableOpacity onPress={() => handleDeleteLine(item.id)} hitSlop={10}>
-                        <Trash2 size={14} color="#ccc" />
-                    </TouchableOpacity>
-                </View>
+    const renderItem = ({ item }: { item: NetaSummary }) => (
+        <TouchableOpacity
+            style={styles.itemContainer}
+            onPress={() => handlePressItem(item.id)}
+            activeOpacity={0.7}
+        >
+            <View style={styles.itemContent}>
+                <Text style={styles.itemTitle} numberOfLines={1}>
+                    {item.title}
+                </Text>
+                <Text style={styles.itemDate}>
+                    {new Date(item.updatedAt).toLocaleDateString()}
+                </Text>
             </View>
-        );
-    };
+
+            <View style={styles.itemActions}>
+                <TouchableOpacity
+                    onPress={() => handleDeleteItem(item.id)}
+                    style={styles.deleteButton}
+                    hitSlop={10}
+                >
+                    <Trash2 size={20} color="#ccc" />
+                </TouchableOpacity>
+                <ChevronRight size={20} color="#ccc" />
+            </View>
+        </TouchableOpacity>
+    );
 
     return (
-        <SafeAreaView style={styles.container}>
+        <SafeAreaView style={styles.container} edges={['top']}>
             <StatusBar barStyle="dark-content" />
 
-            {/* --- ヘッダー --- */}
             <View style={styles.header}>
-                <View style={styles.headerLeft}>
-                    <TouchableOpacity onPress={() => router.back()} style={styles.backButton}>
-                        <ChevronLeft size={28} color="#007AFF" />
-                    </TouchableOpacity>
-                    <View>
-                        <Text style={styles.headerTitle} numberOfLines={1}>{displayTitle}</Text>
-                        <View style={styles.timerBadge}>
-                            <Clock size={12} color="#fff" />
-                            <Text style={styles.timerText}>{formatTime(totalDuration)} / 04:00</Text>
-                        </View>
-                    </View>
-                </View>
-
-                <View style={{ flexDirection: 'row', gap: 4 }}>
-                    <TouchableOpacity style={styles.iconButton} onPress={handleClearAll}>
-                        <Trash2 size={20} color="#FF3B30" />
-                    </TouchableOpacity>
-                </View>
+                <Text style={styles.headerTitle}>ネタ帳</Text>
             </View>
 
-            {/* --- リストエリア --- */}
             <FlatList
-                ref={flatListRef}
-                data={lines}
+                data={netaList}
                 renderItem={renderItem}
                 keyExtractor={item => item.id}
                 contentContainerStyle={styles.listContent}
-                style={styles.listArea}
+                ListEmptyComponent={
+                    <View style={styles.emptyContainer}>
+                        <Text style={styles.emptyText}>ネタがまだありません</Text>
+                        <Text style={styles.emptySubText}>右下の＋ボタンから作成しましょう</Text>
+                    </View>
+                }
             />
 
-            {/* --- 入力エリア --- */}
-            <KeyboardAvoidingView
-                behavior={Platform.OS === "ios" ? "padding" : "height"}
-                keyboardVerticalOffset={Platform.OS === "ios" ? 10 : 0}
-                style={styles.inputContainer}
-            >
-                <View style={styles.roleTabs}>
-                    <TouchableOpacity
-                        style={[styles.roleTab, currentRole === 'boke' && styles.roleTabActiveBoke]}
-                        onPress={() => setCurrentRole('boke')}
-                    >
-                        <Text style={[styles.roleTabText, currentRole === 'boke' && styles.roleTabTextActive]}>ボケ</Text>
-                    </TouchableOpacity>
-
-                    <TouchableOpacity
-                        style={[styles.roleTab, currentRole === 'tsukkomi' && styles.roleTabActiveTsukkomi]}
-                        onPress={() => setCurrentRole('tsukkomi')}
-                    >
-                        <Text style={[styles.roleTabText, currentRole === 'tsukkomi' && styles.roleTabTextActive]}>ツッコミ</Text>
-                    </TouchableOpacity>
-
-                    <TouchableOpacity
-                        style={[styles.roleTab, currentRole === 'action' && styles.roleTabActiveAction]}
-                        onPress={() => setCurrentRole('action')}
-                    >
-                        <Text style={[styles.roleTabText, currentRole === 'action' && styles.roleTabTextActive]}>ト書き</Text>
-                    </TouchableOpacity>
-                </View>
-
-                <View style={styles.inputBar}>
-                    <TextInput
-                        style={styles.textInput}
-                        placeholder={`${ROLES[currentRole.toUpperCase()].label}を入力...`}
-                        value={inputText}
-                        onChangeText={setInputText}
-                        returnKeyType="send"
-                        onSubmitEditing={handleAddLine}
-                        blurOnSubmit={false}
-                    />
-                    <TouchableOpacity onPress={handleAddLine} style={styles.sendButton}>
-                        <MoveHorizontal size={24} color="#007AFF" />
-                    </TouchableOpacity>
-                </View>
-            </KeyboardAvoidingView>
+            {/* FAB (Floating Action Button) */}
+            <TouchableOpacity style={styles.fab} onPress={handleCreateNew}>
+                <Plus size={32} color="#fff" />
+            </TouchableOpacity>
         </SafeAreaView>
     );
 }
@@ -233,127 +140,87 @@ export default function EditorScreen() {
 const styles = StyleSheet.create({
     container: {
         flex: 1,
-        backgroundColor: '#fff',
+        backgroundColor: '#F2F2F7',
     },
     header: {
-        flexDirection: 'row',
-        justifyContent: 'space-between',
-        alignItems: 'center',
-        padding: 12,
-        borderBottomWidth: 1,
-        borderBottomColor: '#eee',
+        padding: 16,
         backgroundColor: '#fff',
-        paddingTop: Platform.OS === 'android' ? 40 : 12,
-    },
-    headerLeft: {
-        flexDirection: 'row',
-        alignItems: 'center',
-        flex: 1,
-    },
-    backButton: {
-        marginRight: 8,
-        padding: 4,
+        borderBottomWidth: 1,
+        borderBottomColor: '#E5E5EA',
     },
     headerTitle: {
-        fontSize: 16,
+        fontSize: 22,
         fontWeight: 'bold',
-        maxWidth: 200,
-    },
-    timerBadge: {
-        flexDirection: 'row',
-        alignItems: 'center',
-        backgroundColor: '#333',
-        paddingVertical: 2,
-        paddingHorizontal: 6,
-        borderRadius: 8,
-        alignSelf: 'flex-start',
-        marginTop: 2,
-    },
-    timerText: {
-        color: '#fff',
-        fontSize: 10,
-        fontWeight: 'bold',
-        marginLeft: 4,
-    },
-    iconButton: {
-        padding: 8,
-    },
-    listArea: {
-        flex: 1,
-        backgroundColor: '#f9f9f9',
+        color: '#000',
     },
     listContent: {
         padding: 16,
-        paddingBottom: 20,
+        paddingBottom: 100, // FABの分を空ける
     },
-    lineWrapper: {
-        marginBottom: 16,
-        maxWidth: '100%',
-    },
-    roleLabel: {
-        fontSize: 10,
-        color: '#999',
-        marginBottom: 2,
-        marginHorizontal: 4,
-    },
-    bubble: {
-        padding: 12,
-        borderRadius: 16,
-        maxWidth: '85%',
-    },
-    bubbleText: {
-        fontSize: 16,
-        lineHeight: 24,
-    },
-    metaContainer: {
+    itemContainer: {
         flexDirection: 'row',
         alignItems: 'center',
-        marginTop: 4,
-        marginHorizontal: 4,
-        justifyContent: 'flex-end',
-        gap: 8,
-    },
-    durationText: {
-        fontSize: 10,
-        color: '#aaa',
-    },
-    inputContainer: {
-        borderTopWidth: 1,
-        borderTopColor: '#eee',
         backgroundColor: '#fff',
+        padding: 16,
+        borderRadius: 12,
+        marginBottom: 12,
+        // 影の設定
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: 2 },
+        shadowOpacity: 0.05,
+        shadowRadius: 4,
+        elevation: 2,
     },
-    roleTabs: {
-        flexDirection: 'row',
-        paddingHorizontal: 16,
-        paddingTop: 8,
-        gap: 8,
+    itemContent: {
+        flex: 1,
+        marginRight: 8,
     },
-    roleTab: {
-        paddingVertical: 6,
-        paddingHorizontal: 16,
-        borderRadius: 20,
-        backgroundColor: '#f0f0f0',
+    itemTitle: {
+        fontSize: 16,
+        fontWeight: '600',
+        marginBottom: 4,
+        color: '#333',
     },
-    roleTabActiveBoke: { backgroundColor: '#E3F2FD' },
-    roleTabActiveTsukkomi: { backgroundColor: '#FFEBEE' },
-    roleTabActiveAction: { backgroundColor: '#eeeeee', borderWidth: 1, borderColor: '#ccc' },
-    roleTabText: { fontSize: 12, fontWeight: 'bold', color: '#666' },
-    roleTabTextActive: { color: '#333' },
-    inputBar: {
+    itemDate: {
+        fontSize: 12,
+        color: '#8E8E93',
+    },
+    itemActions: {
         flexDirection: 'row',
         alignItems: 'center',
-        padding: 12,
-        gap: 8,
+        gap: 12,
     },
-    textInput: {
-        flex: 1,
-        height: 44,
-        backgroundColor: '#f5f5f5',
-        borderRadius: 22,
-        paddingHorizontal: 16,
-        fontSize: 16,
+    deleteButton: {
+        padding: 4,
     },
-    sendButton: {
-        padding: 8,
+    fab: {
+        position: 'absolute',
+        bottom: 24,
+        right: 24,
+        width: 56,
+        height: 56,
+        borderRadius: 28,
+        backgroundColor: '#007AFF',
+        justifyContent: 'center',
+        alignItems: 'center',
+        shadowColor: '#007AFF',
+        shadowOffset: { width: 0, height: 4 },
+        shadowOpacity: 0.3,
+        shadowRadius: 8,
+        elevation: 5,
+    },
+    emptyContainer: {
+        alignItems: 'center',
+        marginTop: 60,
+    },
+    emptyText: {
+        fontSize: 18,
+        fontWeight: 'bold',
+        color: '#333',
+        marginBottom: 8,
+    },
+    emptySubText: {
+        fontSize: 14,
+        color: '#999',
     },
 });
