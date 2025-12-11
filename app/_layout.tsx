@@ -1,24 +1,25 @@
-import { DarkTheme, DefaultTheme, ThemeProvider } from '@react-navigation/native';
 import { Stack } from 'expo-router';
-import { StatusBar } from 'expo-status-bar';
-import 'react-native-reanimated';
-
-import { useColorScheme } from '@/hooks/use-color-scheme';
-
-export const unstable_settings = {
-  anchor: '(tabs)',
-};
 
 export default function RootLayout() {
-  const colorScheme = useColorScheme();
-
   return (
-    <ThemeProvider value={colorScheme === 'dark' ? DarkTheme : DefaultTheme}>
-      <Stack>
-        <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
-        <Stack.Screen name="modal" options={{ presentation: 'modal', title: 'Modal' }} />
-      </Stack>
-      <StatusBar style="auto" />
-    </ThemeProvider>
+    <Stack>
+      {/* ネタ帳（一覧画面）の設定 */}
+      <Stack.Screen
+        name="index"
+        options={{
+          title: 'ネタ帳',
+          headerShown: false // index.tsx側でヘッダーを作っているので、ここは隠す
+        }}
+      />
+
+      {/* エディター画面の設定 */}
+      <Stack.Screen
+        name="editor"
+        options={{
+          headerShown: false, // editor.tsx側でカスタムヘッダーを作ったので、標準ヘッダーは隠す
+          presentation: 'card' // 下から出てくるのではなく、横スライドで画面遷移する
+        }}
+      />
+    </Stack>
   );
 }
