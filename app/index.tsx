@@ -1,3 +1,6 @@
+// app/index.tsx
+
+import { useAppTheme } from '@/context/ThemeContext';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useFocusEffect, useRouter } from 'expo-router';
 import { Check, ChevronRight, Plus, Search, Settings, SlidersHorizontal, Trash2, X } from 'lucide-react-native';
@@ -15,7 +18,6 @@ import {
     View
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { useAppTheme } from './context/ThemeContext'; // ★追加
 
 type NetaSummary = {
     id: string;
@@ -28,16 +30,14 @@ type SortOption = 'dateDesc' | 'dateAsc' | 'titleAsc';
 
 export default function IndexScreen() {
     const router = useRouter();
-    const { theme, setTheme, effectiveColorScheme } = useAppTheme(); // ★テーマ取得
+    const { theme, setTheme, effectiveColorScheme } = useAppTheme();
     const isDark = effectiveColorScheme === 'dark';
 
     const [netaList, setNetaList] = useState<NetaSummary[]>([]);
 
-    // ★追加機能用のステート
     const [searchQuery, setSearchQuery] = useState('');
     const [sortOption, setSortOption] = useState<SortOption>('dateDesc');
     const [isSettingsVisible, setSettingsVisible] = useState(false);
-    const [isSortMenuVisible, setSortMenuVisible] = useState(false);
 
     // テーマカラー定義
     const colors = {
@@ -66,13 +66,21 @@ export default function IndexScreen() {
                 const id = key.replace('manzai_script_', '');
                 const parsed = value ? JSON.parse(value) : null;
                 let title = '無題のネタ';
+                let updatedAt = 0;
+
                 if (parsed && typeof parsed === 'object') {
                     if (parsed.title) title = parsed.title;
                     else if (Array.isArray(parsed.lines) && parsed.lines.length > 0) title = parsed.lines[0].text;
-                } else if (Array.isArray(parsed) && parsed.length > 0) {
-                    title = parsed[0].text;
+
+                    if (parsed.updatedAt) updatedAt = parsed.updatedAt;
+                } else if (Array.isArray(parsed)) {
+                    // 旧データ形式への対応
+                    if (parsed.length > 0) title = parsed[0].text;
                 }
-                return { id, title, updatedAt: parseInt(id) || 0 };
+
+                if (!updatedAt) updatedAt = parseInt(id) || 0;
+
+                return { id, title, updatedAt };
             });
             setNetaList(list);
         } catch (e) {
@@ -80,18 +88,15 @@ export default function IndexScreen() {
         }
     };
 
-    // ★検索と並び替えのロジック
     const filteredAndSortedList = useMemo(() => {
         let result = [...netaList];
 
-        // 1. 検索
         if (searchQuery) {
             result = result.filter(item =>
                 item.title.toLowerCase().includes(searchQuery.toLowerCase())
             );
         }
 
-        // 2. 並び替え
         result.sort((a, b) => {
             if (sortOption === 'dateDesc') return b.updatedAt - a.updatedAt;
             if (sortOption === 'dateAsc') return a.updatedAt - b.updatedAt;
@@ -103,6 +108,7 @@ export default function IndexScreen() {
     }, [netaList, searchQuery, sortOption]);
 
     const handleCreateNew = () => {
+        // ★修正: 新規作成時にIDを生成して渡す
         const newId = Date.now().toString();
         router.push({ pathname: '/editor', params: { id: newId } });
     };
@@ -319,7 +325,6 @@ const styles = StyleSheet.create({
     emptyContainer: { alignItems: 'center', marginTop: 60 },
     emptyText: { fontSize: 18, fontWeight: 'bold', marginBottom: 8 },
     emptySubText: { fontSize: 14 },
-    // Modal Styles
     modalOverlay: {
         flex: 1,
         backgroundColor: 'rgba(0,0,0,0.5)',
