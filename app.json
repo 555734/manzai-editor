@@ -1,6 +1,6 @@
 {
   "expo": {
-    "name": "manzai-editor",
+    "name": "漫才ネタ帳‐ネタメモ",
     "slug": "manzai-editor",
     "version": "1.0.0",
     "orientation": "portrait",
@@ -9,7 +9,8 @@
     "userInterfaceStyle": "automatic",
     "newArchEnabled": true,
     "ios": {
-      "supportsTablet": true
+      "supportsTablet": true,
+      "bundleIdentifier": "com.yourname.manzaieditor"
     },
     "android": {
       "adaptiveIcon": {
@@ -18,6 +19,7 @@
         "backgroundImage": "./assets/images/android-icon-background.png",
         "monochromeImage": "./assets/images/android-icon-monochrome.png"
       },
+      "package": "com.presentsoft.manzaieditor",
       "edgeToEdgeEnabled": true,
       "predictiveBackGestureEnabled": false,
       "softwareKeyboardLayoutMode": "resize"
