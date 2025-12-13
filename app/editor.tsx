@@ -1,5 +1,3 @@
-// app/editor.tsx
-
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import debounce from 'lodash.debounce';
@@ -8,6 +6,7 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
     Alert,
     BackHandler,
+    FlatList,
     Keyboard,
     KeyboardAvoidingView,
     Modal,
@@ -18,9 +17,8 @@ import {
     Text,
     TextInput,
     TouchableOpacity,
-    View,
+    View
 } from 'react-native';
-import DraggableFlatList, { RenderItemParams, ScaleDecorator } from 'react-native-draggable-flatlist';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { captureRef } from 'react-native-view-shot';
 import { v4 as uuidv4 } from 'uuid';
@@ -97,9 +95,9 @@ export default function EditorScreen() {
                     updatedAt: Date.now(),
                 };
                 await AsyncStorage.setItem(`manzai_script_${currentId}`, JSON.stringify(dataToSave));
-                console.log('自動保存完了');
+                console.log('Saved');
             } catch (e) {
-                console.error("保存エラー", e);
+                console.error(e);
             }
         }, 1000),
         []
@@ -129,7 +127,7 @@ export default function EditorScreen() {
                     setTitle('無題のネタ');
                 }
             } catch (e) {
-                console.error("読み込みエラー", e);
+                console.error(e);
             }
         };
         loadData();
@@ -231,7 +229,7 @@ export default function EditorScreen() {
         setEditingLineId(null);
     };
 
-    const renderItem = useCallback(({ item, drag, isActive }: RenderItemParams<Line>) => {
+    const renderItem = useCallback(({ item }: { item: Line }) => {
         const roleKey = item.type.toUpperCase() as keyof typeof ROLES;
         const roleConfig = ROLES[roleKey];
         const isAction = item.type === 'action';
@@ -240,53 +238,49 @@ export default function EditorScreen() {
         const textColor = isDark && isAction ? DARK_THEME_ACTION_COLORS.text : roleConfig.textColor;
 
         return (
-            <ScaleDecorator>
-                <TouchableOpacity
-                    onLongPress={drag}
-                    disabled={isActive}
-                    activeOpacity={1}
-                    style={[
-                        styles.lineWrapper,
-                        { alignItems: roleConfig.align, opacity: isActive ? 0.7 : 1 }
-                    ]}
-                >
-                    {!isAction && <Text style={styles.roleLabel}>{roleConfig.label}</Text>}
+            <TouchableOpacity
+                activeOpacity={0.8}
+                style={[
+                    styles.lineWrapper,
+                    { alignItems: roleConfig.align }
+                ]}
+            >
+                {!isAction && <Text style={styles.roleLabel}>{roleConfig.label}</Text>}
 
-                    <View style={{ flexDirection: 'row', alignItems: 'flex-end', gap: 8 }}>
-                        {roleConfig.align === 'flex-start' && (
-                            <TouchableOpacity onPressIn={drag} style={{ padding: 4 }}>
-                                <GripVertical size={20} color="#ccc" />
-                            </TouchableOpacity>
-                        )}
-
-                        <View style={[styles.bubble, { backgroundColor: bubbleColor }]}>
-                            <Text style={[styles.bubbleText, { color: textColor, fontStyle: isAction ? 'italic' : 'normal' }]}>
-                                {isAction ? `（${item.text}）` : item.text}
-                            </Text>
+                <View style={{ flexDirection: 'row', alignItems: 'flex-end', gap: 8 }}>
+                    {roleConfig.align === 'flex-start' && (
+                        <View style={{ padding: 4, opacity: 0.3 }}>
+                            <GripVertical size={20} color="#ccc" />
                         </View>
+                    )}
 
-                        {roleConfig.align === 'flex-end' && (
-                            <TouchableOpacity onPressIn={drag} style={{ padding: 4 }}>
-                                <GripVertical size={20} color="#ccc" />
-                            </TouchableOpacity>
-                        )}
+                    <View style={[styles.bubble, { backgroundColor: bubbleColor }]}>
+                        <Text style={[styles.bubbleText, { color: textColor, fontStyle: isAction ? 'italic' : 'normal' }]}>
+                            {isAction ? `（${item.text}）` : item.text}
+                        </Text>
                     </View>
 
-                    <View style={[styles.metaContainer, { justifyContent: roleConfig.align === 'flex-end' ? 'flex-end' : 'flex-start' }]}>
-                        {isAction ? (
-                            <TouchableOpacity onPress={() => openDurationModal(item)} style={styles.durationButton}>
-                                <Clock size={10} color="#666" />
-                                <Text style={styles.durationText}>{item.duration}秒 (変更)</Text>
-                            </TouchableOpacity>
-                        ) : (
-                            <Text style={styles.durationText}>{item.duration}秒</Text>
-                        )}
-                        <TouchableOpacity onPress={() => handleDeleteLine(item.id)} hitSlop={10} style={{ marginLeft: 8 }}>
-                            <Trash2 size={14} color={isDark ? "#666" : "#ccc"} />
+                    {roleConfig.align === 'flex-end' && (
+                        <View style={{ padding: 4, opacity: 0.3 }}>
+                            <GripVertical size={20} color="#ccc" />
+                        </View>
+                    )}
+                </View>
+
+                <View style={[styles.metaContainer, { justifyContent: roleConfig.align === 'flex-end' ? 'flex-end' : 'flex-start' }]}>
+                    {isAction ? (
+                        <TouchableOpacity onPress={() => openDurationModal(item)} style={styles.durationButton}>
+                            <Clock size={10} color="#666" />
+                            <Text style={styles.durationText}>{item.duration}秒 (変更)</Text>
                         </TouchableOpacity>
-                    </View>
-                </TouchableOpacity>
-            </ScaleDecorator>
+                    ) : (
+                        <Text style={styles.durationText}>{item.duration}秒</Text>
+                    )}
+                    <TouchableOpacity onPress={() => handleDeleteLine(item.id)} hitSlop={10} style={{ marginLeft: 8 }}>
+                        <Trash2 size={14} color={isDark ? "#666" : "#ccc"} />
+                    </TouchableOpacity>
+                </View>
+            </TouchableOpacity>
         );
     }, [isDark]);
 
@@ -321,73 +315,74 @@ export default function EditorScreen() {
                 </View>
             </View>
 
-            <View
-                ref={viewRef}
-                collapsable={false}
-                style={{ flex: 1, backgroundColor: theme.listAreaBg }}
-            >
-                <DraggableFlatList
-                    ref={flatListRef}
-                    data={lines}
-                    onDragEnd={({ data }) => setLines(data)}
-                    keyExtractor={(item) => item.id}
-                    renderItem={renderItem}
-                    contentContainerStyle={styles.listContent}
-                    style={{ flex: 1 }}
-                    activationDistance={20}
-                    ListEmptyComponent={
-                        <View style={{ alignItems: 'center', marginTop: 40 }}>
-                            <Text style={{ color: theme.placeholder }}>ネタがまだありません</Text>
-                        </View>
-                    }
-                />
-            </View>
-
+            {/* KeyboardAvoidingView でリストと入力欄の両方を包む */}
             <KeyboardAvoidingView
                 behavior={Platform.OS === "ios" ? "padding" : undefined}
-                keyboardVerticalOffset={Platform.OS === "ios" ? 0 : 0}
-                style={[styles.inputContainer, { backgroundColor: theme.background, borderTopColor: theme.headerBorder }]}
+                style={{ flex: 1 }}
+                keyboardVerticalOffset={Platform.OS === "ios" ? 10 : 0}
             >
-                <View style={styles.roleTabs}>
-                    <TouchableOpacity
-                        style={[styles.roleTab, currentRole === 'boke' && styles.roleTabActiveBoke]}
-                        onPress={() => setCurrentRole('boke')}
-                    >
-                        <Text style={[styles.roleTabText, currentRole === 'boke' && styles.roleTabTextActive]}>ボケ</Text>
-                    </TouchableOpacity>
-
-                    <TouchableOpacity
-                        style={[styles.roleTab, currentRole === 'tsukkomi' && styles.roleTabActiveTsukkomi]}
-                        onPress={() => setCurrentRole('tsukkomi')}
-                    >
-                        <Text style={[styles.roleTabText, currentRole === 'tsukkomi' && styles.roleTabTextActive]}>ツッコミ</Text>
-                    </TouchableOpacity>
-
-                    <TouchableOpacity
-                        style={[
-                            styles.roleTab,
-                            currentRole === 'action' && { backgroundColor: isDark ? '#333' : '#eee', borderColor: isDark ? '#555' : '#ccc', borderWidth: 1 }
-                        ]}
-                        onPress={() => setCurrentRole('action')}
-                    >
-                        <Text style={[styles.roleTabText, currentRole === 'action' && { color: isDark ? '#fff' : '#333' }]}>ト書き</Text>
-                    </TouchableOpacity>
+                <View
+                    ref={viewRef}
+                    collapsable={false}
+                    style={{ flex: 1, backgroundColor: theme.listAreaBg }}
+                >
+                    <FlatList
+                        ref={flatListRef}
+                        data={lines}
+                        keyExtractor={(item) => item.id}
+                        renderItem={renderItem}
+                        contentContainerStyle={styles.listContent}
+                        style={{ flex: 1 }}
+                        ListEmptyComponent={
+                            <View style={{ alignItems: 'center', marginTop: 40 }}>
+                                <Text style={{ color: theme.placeholder }}>ネタがまだありません</Text>
+                            </View>
+                        }
+                    />
                 </View>
 
-                <View style={styles.inputBar}>
-                    <TextInput
-                        style={[styles.textInput, { backgroundColor: theme.inputBg, color: theme.text }]}
-                        placeholder={`${ROLES[currentRole.toUpperCase() as keyof typeof ROLES].label}を入力...`}
-                        placeholderTextColor={theme.placeholder}
-                        value={inputText}
-                        onChangeText={setInputText}
-                        returnKeyType="send"
-                        onSubmitEditing={handleAddLine}
-                        blurOnSubmit={false}
-                    />
-                    <TouchableOpacity onPress={handleAddLine} style={styles.sendButton}>
-                        <MoveHorizontal size={24} color="#007AFF" />
-                    </TouchableOpacity>
+                <View style={[styles.inputContainer, { backgroundColor: theme.background, borderTopColor: theme.headerBorder }]}>
+                    <View style={styles.roleTabs}>
+                        <TouchableOpacity
+                            style={[styles.roleTab, currentRole === 'boke' && styles.roleTabActiveBoke]}
+                            onPress={() => setCurrentRole('boke')}
+                        >
+                            <Text style={[styles.roleTabText, currentRole === 'boke' && styles.roleTabTextActive]}>ボケ</Text>
+                        </TouchableOpacity>
+
+                        <TouchableOpacity
+                            style={[styles.roleTab, currentRole === 'tsukkomi' && styles.roleTabActiveTsukkomi]}
+                            onPress={() => setCurrentRole('tsukkomi')}
+                        >
+                            <Text style={[styles.roleTabText, currentRole === 'tsukkomi' && styles.roleTabTextActive]}>ツッコミ</Text>
+                        </TouchableOpacity>
+
+                        <TouchableOpacity
+                            style={[
+                                styles.roleTab,
+                                currentRole === 'action' && { backgroundColor: isDark ? '#333' : '#eee', borderColor: isDark ? '#555' : '#ccc', borderWidth: 1 }
+                            ]}
+                            onPress={() => setCurrentRole('action')}
+                        >
+                            <Text style={[styles.roleTabText, currentRole === 'action' && { color: isDark ? '#fff' : '#333' }]}>ト書き</Text>
+                        </TouchableOpacity>
+                    </View>
+
+                    <View style={styles.inputBar}>
+                        <TextInput
+                            style={[styles.textInput, { backgroundColor: theme.inputBg, color: theme.text }]}
+                            placeholder={`${ROLES[currentRole.toUpperCase() as keyof typeof ROLES].label}を入力...`}
+                            placeholderTextColor={theme.placeholder}
+                            value={inputText}
+                            onChangeText={setInputText}
+                            returnKeyType="send"
+                            onSubmitEditing={handleAddLine}
+                            blurOnSubmit={false}
+                        />
+                        <TouchableOpacity onPress={handleAddLine} style={styles.sendButton}>
+                            <MoveHorizontal size={24} color="#007AFF" />
+                        </TouchableOpacity>
+                    </View>
                 </View>
             </KeyboardAvoidingView>
 
