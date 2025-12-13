@@ -19,7 +19,7 @@ import {
     TouchableOpacity,
     View
 } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { captureRef } from 'react-native-view-shot';
 import { v4 as uuidv4 } from 'uuid';
 
@@ -56,6 +56,7 @@ const formatTime = (seconds: number) => {
 export default function EditorScreen() {
     const router = useRouter();
     const { id } = useLocalSearchParams();
+    const insets = useSafeAreaInsets();
     const STORAGE_KEY = `manzai_script_${id}`;
 
     const { effectiveColorScheme } = useAppTheme();
@@ -84,6 +85,12 @@ export default function EditorScreen() {
     const viewRef = useRef<View>(null);
 
     const totalDuration = lines.reduce((acc, line) => acc + (line.duration || 0), 0);
+
+    // ヘッダーの高さを計算 (パディング + コンテンツの概算高さ)
+    // paddingVertical: 12 + アイコンサイズなど。Topはinsets分確保
+    const headerPaddingTop = Math.max(insets.top, 12) + 10;
+    const headerContentHeight = 44; // アイコンや入力欄の高さ
+    const headerTotalHeight = headerPaddingTop + headerContentHeight + 24; // 余白余裕
 
     const debouncedSave = useMemo(
         () => debounce(async (currentId: string, currentTitle: string, currentLines: Line[]) => {
@@ -285,10 +292,16 @@ export default function EditorScreen() {
     }, [isDark]);
 
     return (
-        <SafeAreaView style={[styles.container, { backgroundColor: theme.background }]}>
+        <View style={[styles.container, { backgroundColor: theme.background }]}>
             <StatusBar barStyle={isDark ? "light-content" : "dark-content"} />
 
-            <View style={[styles.header, { backgroundColor: theme.headerBg, borderBottomColor: theme.headerBorder }]}>
+            {/* ヘッダーはKeyboardAvoidingViewの外に配置 */}
+            <View style={[styles.header, {
+                backgroundColor: theme.headerBg,
+                borderBottomColor: theme.headerBorder,
+                paddingTop: headerPaddingTop,
+                height: headerTotalHeight, // 高さを固定
+            }]}>
                 <TouchableOpacity onPress={() => router.canGoBack() ? router.back() : router.replace('/')} style={styles.backButton}>
                     <ChevronLeft size={28} color="#007AFF" />
                 </TouchableOpacity>
@@ -315,11 +328,13 @@ export default function EditorScreen() {
                 </View>
             </View>
 
-            {/* KeyboardAvoidingView でリストと入力欄の両方を包む */}
+            {/* AndroidとiOS両方に対応するためのKeyboardAvoidingView設定
+               Headerを外に出したので、offsetはHeaderの高さ分を指定する
+            */}
             <KeyboardAvoidingView
-                behavior={Platform.OS === "ios" ? "padding" : undefined}
+                behavior={Platform.OS === "ios" ? "padding" : "height"}
                 style={{ flex: 1 }}
-                keyboardVerticalOffset={Platform.OS === "ios" ? 10 : 0}
+                keyboardVerticalOffset={Platform.OS === "ios" ? headerTotalHeight : 0}
             >
                 <View
                     ref={viewRef}
@@ -331,7 +346,9 @@ export default function EditorScreen() {
                         data={lines}
                         keyExtractor={(item) => item.id}
                         renderItem={renderItem}
-                        contentContainerStyle={styles.listContent}
+                        contentContainerStyle={[styles.listContent, { paddingBottom: 20 }]} // paddingBottomを少し減らす
+                        onContentSizeChange={() => flatListRef.current?.scrollToEnd({ animated: true })}
+                        onLayout={() => flatListRef.current?.scrollToEnd({ animated: true })}
                         style={{ flex: 1 }}
                         ListEmptyComponent={
                             <View style={{ alignItems: 'center', marginTop: 40 }}>
@@ -341,7 +358,12 @@ export default function EditorScreen() {
                     />
                 </View>
 
-                <View style={[styles.inputContainer, { backgroundColor: theme.background, borderTopColor: theme.headerBorder }]}>
+                {/* 入力エリア */}
+                <View style={[styles.inputContainer, {
+                    backgroundColor: theme.background,
+                    borderTopColor: theme.headerBorder,
+                    paddingBottom: Math.max(insets.bottom, 10)
+                }]}>
                     <View style={styles.roleTabs}>
                         <TouchableOpacity
                             style={[styles.roleTab, currentRole === 'boke' && styles.roleTabActiveBoke]}
@@ -421,7 +443,7 @@ export default function EditorScreen() {
                     </View>
                 </TouchableOpacity>
             </Modal>
-        </SafeAreaView>
+        </View>
     );
 }
 
@@ -429,8 +451,8 @@ const styles = StyleSheet.create({
     container: { flex: 1 },
     header: {
         flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center',
-        padding: 12, borderBottomWidth: 1,
-        paddingTop: Platform.OS === 'android' ? 40 : 12,
+        paddingHorizontal: 12, borderBottomWidth: 1,
+        // paddingTopは動的に設定
     },
     backButton: { marginRight: 8, padding: 4 },
     titleInput: {
@@ -446,7 +468,7 @@ const styles = StyleSheet.create({
     },
     timerText: { color: '#fff', fontSize: 10, fontWeight: 'bold', marginLeft: 4 },
     iconButton: { padding: 8 },
-    listContent: { padding: 16, paddingBottom: 100 },
+    listContent: { padding: 16 }, // paddingBottomは動的に設定
     lineWrapper: { marginBottom: 16, maxWidth: '100%' },
     roleLabel: { fontSize: 10, color: '#999', marginBottom: 2, marginHorizontal: 4 },
     bubble: { padding: 12, borderRadius: 16, maxWidth: '85%' },
@@ -454,7 +476,10 @@ const styles = StyleSheet.create({
     metaContainer: { flexDirection: 'row', alignItems: 'center', marginTop: 4, marginHorizontal: 4, gap: 8 },
     durationText: { fontSize: 10, color: '#aaa' },
     durationButton: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#f0f0f0', padding: 4, borderRadius: 4, gap: 4 },
-    inputContainer: { borderTopWidth: 1, paddingBottom: Platform.OS === 'ios' ? 0 : 10 },
+    inputContainer: {
+        borderTopWidth: 1,
+        // paddingBottomは動的に設定
+    },
     roleTabs: { flexDirection: 'row', paddingHorizontal: 16, paddingTop: 8, gap: 8 },
     roleTab: { paddingVertical: 6, paddingHorizontal: 16, borderRadius: 20, backgroundColor: '#f0f0f0' },
     roleTabActiveBoke: { backgroundColor: '#E3F2FD' },
