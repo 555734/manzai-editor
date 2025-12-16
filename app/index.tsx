@@ -1,319 +1,313 @@
-// app/index.tsx
-
-import { useAppTheme } from '@/context/ThemeContext';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useFocusEffect, useRouter } from 'expo-router';
-import { Check, ChevronRight, Plus, Search, Settings, SlidersHorizontal, Trash2, X } from 'lucide-react-native';
-import React, { useCallback, useMemo, useState } from 'react';
+import { Plus, Search, Settings } from 'lucide-react-native';
+import React, { useCallback, useState } from 'react';
 import {
-    Alert,
+    ActivityIndicator,
     FlatList,
-    Modal,
     StatusBar,
     StyleSheet,
     Text,
     TextInput,
     TouchableOpacity,
-    TouchableWithoutFeedback,
     View
 } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
-type NetaSummary = {
+import { useAppTheme } from '@/context/ThemeContext';
+
+type Line = {
     id: string;
+    text: string;
+};
+
+type ScriptData = {
+    id: string; // IDはファイル名やkeyから取得
     title: string;
+    lines: Line[];
     updatedAt: number;
 };
 
-// 並び替えの種類の定義
-type SortOption = 'dateDesc' | 'dateAsc' | 'titleAsc';
-
-export default function IndexScreen() {
+export default function HomeScreen() {
     const router = useRouter();
-    const { theme, setTheme, effectiveColorScheme } = useAppTheme();
+    const insets = useSafeAreaInsets();
+    const { effectiveColorScheme } = useAppTheme();
     const isDark = effectiveColorScheme === 'dark';
 
-    const [netaList, setNetaList] = useState<NetaSummary[]>([]);
-
-    const [searchQuery, setSearchQuery] = useState('');
-    const [sortOption, setSortOption] = useState<SortOption>('dateDesc');
-    const [isSettingsVisible, setSettingsVisible] = useState(false);
-
-    // テーマカラー定義
-    const colors = {
-        bg: isDark ? '#151718' : '#F2F2F7',
-        card: isDark ? '#2C2C2E' : '#fff',
-        text: isDark ? '#ECEDEE' : '#333',
-        subText: isDark ? '#9BA1A6' : '#8E8E93',
-        border: isDark ? '#444' : '#E5E5EA',
-        inputBg: isDark ? '#1C1C1E' : '#E5E5EA',
-        tint: '#007AFF',
+    // テーマ設定
+    const theme = {
+        background: isDark ? '#1F2329' : '#F5F5F5',
+        headerBg: isDark ? '#2B2E35' : '#FFFFFF',
+        headerText: isDark ? '#F5F5F5' : '#000000',
+        cardBg: isDark ? '#2B2E35' : '#FFFFFF',
+        text: isDark ? '#F5F5F5' : '#333333',
+        subText: isDark ? '#AAAAAA' : '#888888',
+        placeholder: isDark ? '#666666' : '#CCCCCC',
+        border: isDark ? '#3A3F45' : '#E0E0E0',
+        fab: '#007AFF',
     };
 
+    const [scripts, setScripts] = useState<ScriptData[]>([]);
+    const [loading, setLoading] = useState(true);
+    const [searchQuery, setSearchQuery] = useState('');
+    const [isSearchActive, setIsSearchActive] = useState(false); // 検索モードの切り替え
+
+    // 画面が表示されるたびにデータを読み込む
     useFocusEffect(
         useCallback(() => {
-            loadNetaList();
+            loadScripts();
         }, [])
     );
 
-    const loadNetaList = async () => {
+    const loadScripts = async () => {
+        setLoading(true);
         try {
             const keys = await AsyncStorage.getAllKeys();
             const scriptKeys = keys.filter(k => k.startsWith('manzai_script_'));
-            const items = await AsyncStorage.multiGet(scriptKeys);
+            const result = await AsyncStorage.multiGet(scriptKeys);
 
-            const list: NetaSummary[] = items.map(([key, value]) => {
+            const loadedScripts: ScriptData[] = result.map(([key, value]) => {
+                if (!value) return null;
+                const parsed = JSON.parse(value);
+                // IDをキーから抽出 (manzai_script_UUID)
                 const id = key.replace('manzai_script_', '');
-                const parsed = value ? JSON.parse(value) : null;
-                let title = '無題のネタ';
-                let updatedAt = 0;
+                return { ...parsed, id };
+            }).filter((item): item is ScriptData => item !== null);
 
-                if (parsed && typeof parsed === 'object') {
-                    if (parsed.title) title = parsed.title;
-                    else if (Array.isArray(parsed.lines) && parsed.lines.length > 0) title = parsed.lines[0].text;
-
-                    if (parsed.updatedAt) updatedAt = parsed.updatedAt;
-                } else if (Array.isArray(parsed)) {
-                    // 旧データ形式への対応
-                    if (parsed.length > 0) title = parsed[0].text;
-                }
-
-                if (!updatedAt) updatedAt = parseInt(id) || 0;
-
-                return { id, title, updatedAt };
-            });
-            setNetaList(list);
+            // 更新日時順（新しい順）にソート
+            loadedScripts.sort((a, b) => b.updatedAt - a.updatedAt);
+            setScripts(loadedScripts);
         } catch (e) {
             console.error(e);
+        } finally {
+            setLoading(false);
         }
     };
-
-    const filteredAndSortedList = useMemo(() => {
-        let result = [...netaList];
-
-        if (searchQuery) {
-            result = result.filter(item =>
-                item.title.toLowerCase().includes(searchQuery.toLowerCase())
-            );
-        }
-
-        result.sort((a, b) => {
-            if (sortOption === 'dateDesc') return b.updatedAt - a.updatedAt;
-            if (sortOption === 'dateAsc') return a.updatedAt - b.updatedAt;
-            if (sortOption === 'titleAsc') return a.title.localeCompare(b.title);
-            return 0;
-        });
-
-        return result;
-    }, [netaList, searchQuery, sortOption]);
 
     const handleCreateNew = () => {
-        // ★修正: 新規作成時にIDを生成して渡す
-        const newId = Date.now().toString();
-        router.push({ pathname: '/editor', params: { id: newId } });
+        // 新規IDを生成してエディタへ（エディタ側で保存時にIDが確定される想定の場合はIDなしで遷移など、実装による）
+        // ここではエディタ側でIDが無い場合に新規作成するロジックに合わせて空IDまたは新規UUIDを渡す
+        // editor.tsxのロジックに合わせて、ここではパラメータなし（新規）で遷移させます
+        // もしIDが必要なら: router.push(`/editor?id=${uuidv4()}`);
+        // editor.tsxの実装を見ると、idが無い場合は保存されない/またはeditor内で生成？
+        // editor.tsxの修正版では id が必須のような動き（AsyncStorageのキーにid使用）なので、
+        // ここでIDを作って渡すのが安全です。
+        const newId = require('uuid').v4(); // uuidをimportするか、簡易生成
+        router.push(`/editor?id=${newId}`);
     };
 
-    const handleDeleteItem = (id: string) => {
-        Alert.alert('削除', 'このネタを削除しますか？', [
-            { text: 'キャンセル', style: 'cancel' },
-            {
-                text: '削除',
-                style: 'destructive',
-                onPress: async () => {
-                    await AsyncStorage.removeItem(`manzai_script_${id}`);
-                    loadNetaList();
-                },
-            },
-        ]);
-    };
-
-    // --- 設定モーダル ---
-    const renderSettingsModal = () => (
-        <Modal
-            animationType="slide"
-            transparent={true}
-            visible={isSettingsVisible}
-            onRequestClose={() => setSettingsVisible(false)}
-        >
-            <TouchableWithoutFeedback onPress={() => setSettingsVisible(false)}>
-                <View style={styles.modalOverlay}>
-                    <TouchableWithoutFeedback>
-                        <View style={[styles.modalContent, { backgroundColor: colors.card }]}>
-                            <View style={styles.modalHeader}>
-                                <Text style={[styles.modalTitle, { color: colors.text }]}>設定</Text>
-                                <TouchableOpacity onPress={() => setSettingsVisible(false)}>
-                                    <X size={24} color={colors.subText} />
-                                </TouchableOpacity>
-                            </View>
-
-                            <Text style={[styles.sectionTitle, { color: colors.subText }]}>外観モード</Text>
-
-                            {(['light', 'dark', 'system'] as const).map((mode) => (
-                                <TouchableOpacity
-                                    key={mode}
-                                    style={[styles.settingRow, { borderBottomColor: colors.border }]}
-                                    onPress={() => setTheme(mode)}
-                                >
-                                    <Text style={[styles.settingText, { color: colors.text }]}>
-                                        {mode === 'light' ? 'ライトモード' : mode === 'dark' ? 'ダークモード' : '端末の設定に合わせる'}
-                                    </Text>
-                                    {theme === mode && <Check size={20} color={colors.tint} />}
-                                </TouchableOpacity>
-                            ))}
-                        </View>
-                    </TouchableWithoutFeedback>
-                </View>
-            </TouchableWithoutFeedback>
-        </Modal>
+    const filteredScripts = scripts.filter(script =>
+        script.title.toLowerCase().includes(searchQuery.toLowerCase())
     );
 
-    const renderItem = ({ item }: { item: NetaSummary }) => (
+    const renderItem = ({ item }: { item: ScriptData }) => (
         <TouchableOpacity
-            style={[styles.itemContainer, { backgroundColor: colors.card }]}
-            onPress={() => router.push({ pathname: '/editor', params: { id: item.id } })}
+            style={[styles.card, { backgroundColor: theme.cardBg, borderColor: theme.border }]}
+            onPress={() => router.push(`/editor?id=${item.id}`)}
             activeOpacity={0.7}
         >
-            <View style={styles.itemContent}>
-                <Text style={[styles.itemTitle, { color: colors.text }]} numberOfLines={1}>{item.title}</Text>
-                <Text style={[styles.itemDate, { color: colors.subText }]}>
-                    {new Date(item.updatedAt).toLocaleDateString()}
+            <View>
+                <Text style={[styles.cardTitle, { color: theme.text }]} numberOfLines={1}>
+                    {item.title || '無題のネタ'}
+                </Text>
+                <Text style={[styles.cardDate, { color: theme.subText }]}>
+                    {new Date(item.updatedAt).toLocaleDateString()} {new Date(item.updatedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
                 </Text>
             </View>
-            <View style={styles.itemActions}>
-                <TouchableOpacity onPress={() => handleDeleteItem(item.id)} style={styles.deleteButton}>
-                    <Trash2 size={20} color={colors.subText} />
-                </TouchableOpacity>
-                <ChevronRight size={20} color={colors.subText} />
+            <View style={styles.cardArrow}>
+                <Text style={{ color: theme.subText, fontSize: 18 }}>›</Text>
             </View>
         </TouchableOpacity>
     );
 
+    // ヘッダーの高さを計算
+    const headerPaddingTop = Math.max(insets.top, 0);
+    const headerHeight = headerPaddingTop + 56;
+
     return (
-        <SafeAreaView style={[styles.container, { backgroundColor: colors.bg }]} edges={['top']}>
+        <View style={[styles.container, { backgroundColor: theme.background }]}>
             <StatusBar barStyle={isDark ? "light-content" : "dark-content"} />
 
-            {/* ヘッダー */}
-            <View style={[styles.header, { backgroundColor: colors.card, borderBottomColor: colors.border }]}>
-                <Text style={[styles.headerTitle, { color: colors.text }]}>ネタ帳</Text>
-                <TouchableOpacity onPress={() => setSettingsVisible(true)} style={styles.iconButton}>
-                    <Settings size={24} color={colors.tint} />
-                </TouchableOpacity>
-            </View>
-
-            {/* 検索バー & 並び替え */}
-            <View style={[styles.filterContainer, { backgroundColor: colors.bg }]}>
-                <View style={[styles.searchBar, { backgroundColor: colors.inputBg }]}>
-                    <Search size={18} color={colors.subText} />
-                    <TextInput
-                        style={[styles.searchInput, { color: colors.text }]}
-                        placeholder="ネタを検索..."
-                        placeholderTextColor={colors.subText}
-                        value={searchQuery}
-                        onChangeText={setSearchQuery}
-                    />
-                    {searchQuery.length > 0 && (
-                        <TouchableOpacity onPress={() => setSearchQuery('')}>
-                            <X size={16} color={colors.subText} />
+            {/* Header */}
+            <View style={[styles.header, {
+                height: headerHeight,
+                paddingTop: headerPaddingTop,
+                backgroundColor: theme.headerBg,
+                borderBottomColor: theme.border
+            }]}>
+                {isSearchActive ? (
+                    // 検索モード時のヘッダー
+                    <View style={styles.searchBarContainer}>
+                        <View style={[styles.searchInputWrapper, { backgroundColor: theme.background }]}>
+                            <Search size={20} color={theme.subText} />
+                            <TextInput
+                                style={[styles.searchInput, { color: theme.text }]}
+                                placeholder="ネタを検索..."
+                                placeholderTextColor={theme.placeholder}
+                                value={searchQuery}
+                                onChangeText={setSearchQuery}
+                                autoFocus
+                            />
+                        </View>
+                        <TouchableOpacity onPress={() => {
+                            setIsSearchActive(false);
+                            setSearchQuery('');
+                        }} style={styles.cancelButton}>
+                            <Text style={{ color: theme.fab }}>キャンセル</Text>
                         </TouchableOpacity>
-                    )}
-                </View>
-                <TouchableOpacity
-                    style={[styles.sortButton, { backgroundColor: colors.card }]}
-                    onPress={() => setSortOption(prev =>
-                        prev === 'dateDesc' ? 'dateAsc' : prev === 'dateAsc' ? 'titleAsc' : 'dateDesc'
-                    )}
-                >
-                    <SlidersHorizontal size={20} color={colors.tint} />
-                    <Text style={[styles.sortButtonText, { color: colors.tint }]}>
-                        {sortOption === 'dateDesc' ? '新しい順' : sortOption === 'dateAsc' ? '古い順' : '名前順'}
-                    </Text>
-                </TouchableOpacity>
+                    </View>
+                ) : (
+                    // 通常時のヘッダー
+                    <View style={styles.headerContent}>
+                        <Text style={[styles.headerTitle, { color: theme.headerText }]}>ネタ帳</Text>
+
+                        <View style={styles.headerRightIcons}>
+                            {/* 検索アイコン: 大きくして(28)、設定の横に配置 */}
+                            <TouchableOpacity
+                                onPress={() => setIsSearchActive(true)}
+                                style={styles.iconButton}
+                            >
+                                <Search size={28} color={theme.headerText} />
+                            </TouchableOpacity>
+
+                            <TouchableOpacity
+                                onPress={() => router.push('/modal')} // 設定画面へのパス（既存ファイル構成に基づく）
+                                style={styles.iconButton}
+                            >
+                                <Settings size={28} color={theme.headerText} />
+                            </TouchableOpacity>
+                        </View>
+                    </View>
+                )}
             </View>
 
-            <FlatList
-                data={filteredAndSortedList}
-                renderItem={renderItem}
-                keyExtractor={item => item.id}
-                contentContainerStyle={styles.listContent}
-                ListEmptyComponent={
-                    <View style={styles.emptyContainer}>
-                        <Text style={[styles.emptyText, { color: colors.text }]}>ネタが見つかりません</Text>
-                        <Text style={[styles.emptySubText, { color: colors.subText }]}>
-                            {searchQuery ? "検索条件を変更してください" : "右下の＋ボタンから作成しましょう"}
-                        </Text>
-                    </View>
-                }
-            />
+            {/* List */}
+            {loading ? (
+                <View style={styles.center}>
+                    <ActivityIndicator size="large" color={theme.fab} />
+                </View>
+            ) : (
+                <FlatList
+                    data={filteredScripts}
+                    keyExtractor={item => item.id}
+                    renderItem={renderItem}
+                    contentContainerStyle={styles.listContent}
+                    ListEmptyComponent={
+                        <View style={styles.center}>
+                            <Text style={{ color: theme.subText, marginTop: 40 }}>
+                                {searchQuery ? '見つかりませんでした' : 'ネタがまだありません\n右下の＋ボタンで作成'}
+                            </Text>
+                        </View>
+                    }
+                />
+            )}
 
-            <TouchableOpacity style={styles.fab} onPress={handleCreateNew}>
-                <Plus size={32} color="#fff" />
-            </TouchableOpacity>
-
-            {renderSettingsModal()}
-        </SafeAreaView>
+            {/* FAB (新規作成ボタン) */}
+            {!isSearchActive && (
+                <TouchableOpacity
+                    style={[styles.fab, { backgroundColor: theme.fab, bottom: Math.max(insets.bottom, 20) + 10 }]}
+                    onPress={handleCreateNew}
+                    activeOpacity={0.8}
+                >
+                    <Plus size={32} color="#fff" />
+                </TouchableOpacity>
+            )}
+        </View>
     );
 }
 
 const styles = StyleSheet.create({
     container: { flex: 1 },
     header: {
-        padding: 16,
-        flexDirection: 'row',
-        justifyContent: 'space-between',
-        alignItems: 'center',
+        justifyContent: 'center',
         borderBottomWidth: 1,
+        elevation: 2,
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: 1 },
+        shadowOpacity: 0.05,
+        shadowRadius: 2,
     },
-    headerTitle: { fontSize: 22, fontWeight: 'bold' },
-    iconButton: { padding: 4 },
-    filterContainer: {
-        padding: 12,
+    headerContent: {
+        flex: 1,
+        flexDirection: 'row',
+        alignItems: 'center',
+        justifyContent: 'space-between',
+        paddingHorizontal: 16,
+    },
+    headerTitle: {
+        fontSize: 22, // タイトルを見やすく大きく
+        fontWeight: 'bold',
+    },
+    headerRightIcons: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 8, // アイコン間のスペース
+    },
+    iconButton: {
+        padding: 8,
+    },
+    // Search Bar Styles
+    searchBarContainer: {
+        flex: 1,
+        flexDirection: 'row',
+        alignItems: 'center',
+        paddingHorizontal: 16,
         gap: 12,
     },
-    searchBar: {
-        flexDirection: 'row',
-        alignItems: 'center',
-        borderRadius: 10,
-        paddingHorizontal: 12,
-        height: 40,
+    searchInputWrapper: {
         flex: 1,
-    },
-    searchInput: { flex: 1, marginLeft: 8, fontSize: 16, height: '100%' },
-    sortButton: {
         flexDirection: 'row',
         alignItems: 'center',
-        justifyContent: 'center',
-        padding: 10,
-        borderRadius: 10,
-        gap: 6,
-        marginTop: 4,
+        height: 36,
+        borderRadius: 18,
+        paddingHorizontal: 12,
+        gap: 8,
     },
-    sortButtonText: { fontSize: 14, fontWeight: '600' },
-    listContent: { padding: 16, paddingBottom: 100 },
-    itemContainer: {
-        flexDirection: 'row',
-        alignItems: 'center',
+    searchInput: {
+        flex: 1,
+        fontSize: 16,
+        height: '100%',
+        padding: 0, // Androidのデフォルトパディングを除去
+    },
+    cancelButton: {
+        padding: 4,
+    },
+    // List Styles
+    listContent: {
         padding: 16,
-        borderRadius: 12,
-        marginBottom: 12,
-        shadowColor: '#000',
-        shadowOffset: { width: 0, height: 2 },
-        shadowOpacity: 0.05,
-        shadowRadius: 4,
-        elevation: 2,
+        paddingBottom: 100, // FABの分空ける
     },
-    itemContent: { flex: 1, marginRight: 8 },
-    itemTitle: { fontSize: 16, fontWeight: '600', marginBottom: 4 },
-    itemDate: { fontSize: 12 },
-    itemActions: { flexDirection: 'row', alignItems: 'center', gap: 12 },
-    deleteButton: { padding: 4 },
+    card: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        justifyContent: 'space-between',
+        padding: 16,
+        marginBottom: 12,
+        borderRadius: 12,
+        borderWidth: 1,
+    },
+    cardTitle: {
+        fontSize: 17,
+        fontWeight: '600',
+        marginBottom: 4,
+    },
+    cardDate: {
+        fontSize: 12,
+    },
+    cardArrow: {
+        marginLeft: 8,
+    },
+    center: {
+        flex: 1,
+        justifyContent: 'center',
+        alignItems: 'center',
+    },
     fab: {
         position: 'absolute',
-        bottom: 24,
         right: 24,
-        width: 56,
-        height: 56,
-        borderRadius: 28,
-        backgroundColor: '#007AFF',
+        width: 60,
+        height: 60,
+        borderRadius: 30,
         justifyContent: 'center',
         alignItems: 'center',
         elevation: 5,
@@ -322,36 +316,4 @@ const styles = StyleSheet.create({
         shadowOpacity: 0.3,
         shadowRadius: 4,
     },
-    emptyContainer: { alignItems: 'center', marginTop: 60 },
-    emptyText: { fontSize: 18, fontWeight: 'bold', marginBottom: 8 },
-    emptySubText: { fontSize: 14 },
-    modalOverlay: {
-        flex: 1,
-        backgroundColor: 'rgba(0,0,0,0.5)',
-        justifyContent: 'center',
-        alignItems: 'center',
-        padding: 20,
-    },
-    modalContent: {
-        width: '100%',
-        maxWidth: 340,
-        borderRadius: 20,
-        padding: 20,
-        shadowColor: "#000",
-        shadowOffset: { width: 0, height: 2 },
-        shadowOpacity: 0.25,
-        shadowRadius: 4,
-        elevation: 5,
-    },
-    modalHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 },
-    modalTitle: { fontSize: 20, fontWeight: 'bold' },
-    sectionTitle: { fontSize: 13, marginBottom: 8, fontWeight: '600' },
-    settingRow: {
-        flexDirection: 'row',
-        justifyContent: 'space-between',
-        alignItems: 'center',
-        paddingVertical: 16,
-        borderBottomWidth: StyleSheet.hairlineWidth,
-    },
-    settingText: { fontSize: 16 },
 });

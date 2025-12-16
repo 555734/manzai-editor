@@ -10,7 +10,7 @@
     "newArchEnabled": true,
     "ios": {
       "supportsTablet": true,
-      "bundleIdentifier": "com.yourname.manzaieditor"
+      "bundleIdentifier": "com.presentsoft.manzaieditor"
     },
     "android": {
       "adaptiveIcon": {
@@ -22,7 +22,7 @@
       "package": "com.presentsoft.manzaieditor",
       "edgeToEdgeEnabled": true,
       "predictiveBackGestureEnabled": false,
-      "softwareKeyboardLayoutMode": "resize"
+      "softwareKeyboardLayoutMode": "pan"
     },
     "web": {
       "output": "static",
