@@ -1,4 +1,5 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import * as Haptics from 'expo-haptics';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import debounce from 'lodash.debounce';
 import { ArrowUp, ChevronLeft, Menu, Send, User } from 'lucide-react-native';
@@ -8,6 +9,7 @@ import {
     BackHandler,
     FlatList,
     KeyboardAvoidingView,
+    ListRenderItem,
     Platform,
     Share,
     StatusBar,
@@ -48,7 +50,6 @@ export default function EditorScreen() {
     const { effectiveColorScheme } = useAppTheme();
     const isDark = effectiveColorScheme === 'dark';
 
-    // LINE風テーマカラー定義
     const theme = {
         background: isDark ? '#1F2329' : '#9BBBD4',
         headerBg: isDark ? '#2B2E35' : '#F5F5F5',
@@ -72,13 +73,13 @@ export default function EditorScreen() {
     const [inputText, setInputText] = useState('');
     const [currentRole, setCurrentRole] = useState<RoleType>('boke');
 
-    const flatListRef = useRef<any>(null);
+    const flatListRef = useRef<FlatList>(null);
     const viewRef = useRef<View>(null);
 
-    // ヘッダー高さ計算
     const headerPaddingTop = Math.max(insets.top, 0);
     const headerHeight = headerPaddingTop + 50;
 
+    // 自動保存 (Debounce)
     const debouncedSave = useMemo(
         () => debounce(async (currentId: string, currentTitle: string, currentLines: Line[]) => {
             try {
@@ -105,14 +106,9 @@ export default function EditorScreen() {
                 if (jsonValue != null) {
                     const parsed = JSON.parse(jsonValue);
                     if (parsed && typeof parsed === 'object') {
-                        setTitle(parsed.title || '無題');
+                        setTitle(parsed.title || '');
                         setLines(Array.isArray(parsed.lines) ? parsed.lines : []);
-                    } else if (Array.isArray(parsed)) {
-                        setLines(parsed);
-                        setTitle(parsed.length > 0 ? parsed[0].text : '無題');
                     }
-                } else {
-                    setTitle('無題');
                 }
             } catch (e) { console.error(e); }
         };
@@ -129,6 +125,8 @@ export default function EditorScreen() {
 
     const handleAddLine = () => {
         if (!inputText.trim()) return;
+
+        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
 
         const newLine: Line = {
             id: uuidv4(),
@@ -147,9 +145,14 @@ export default function EditorScreen() {
     };
 
     const handleDeleteLine = (lineId: string) => {
+        Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
         Alert.alert("削除", "このセリフを削除しますか？", [
             { text: "キャンセル", style: "cancel" },
-            { text: "削除", style: "destructive", onPress: () => setLines(prev => prev.filter(l => l.id !== lineId)) }
+            {
+                text: "削除",
+                style: "destructive",
+                onPress: () => setLines(prev => prev.filter(l => l.id !== lineId))
+            }
         ]);
     };
 
@@ -179,6 +182,7 @@ export default function EditorScreen() {
     };
 
     const showMenu = () => {
+        Haptics.selectionAsync();
         Alert.alert("メニュー", "", [
             { text: "テキスト共有", onPress: handleShareText },
             { text: "画像共有", onPress: handleShareImage },
@@ -187,29 +191,30 @@ export default function EditorScreen() {
         ]);
     };
 
-    const renderItem = useCallback(({ item }: { item: Line }) => {
-        if (item.type === 'action') {
+    const renderItem: ListRenderItem<Line> = useCallback(({ item }) => {
+        const isMe = item.type === 'tsukkomi';
+        const isAction = item.type === 'action';
+
+        if (isAction) {
             return (
                 <View style={styles.actionRow}>
-                    <View style={[styles.actionBadge, { backgroundColor: theme.bubbleAction }]}>
+                    <TouchableOpacity
+                        onLongPress={() => handleDeleteLine(item.id)}
+                        delayLongPress={500}
+                        style={[styles.actionBadge, { backgroundColor: theme.bubbleAction }]}
+                    >
                         <Text style={[styles.actionText, { color: theme.textAction }]}>{item.text}</Text>
-                    </View>
-                    <TouchableOpacity onLongPress={() => handleDeleteLine(item.id)} delayLongPress={500} style={styles.hiddenDeleteArea} />
+                    </TouchableOpacity>
                 </View>
             );
         }
 
-        const isMe = item.type === 'tsukkomi';
         const alignStyle = isMe ? 'flex-end' : 'flex-start';
         const bubbleColor = isMe ? theme.bubbleRight : theme.bubbleLeft;
         const textColor = isMe ? theme.textRight : theme.textLeft;
 
         return (
-            <TouchableOpacity
-                activeOpacity={0.9}
-                onLongPress={() => handleDeleteLine(item.id)}
-                style={[styles.messageRow, { justifyContent: alignStyle }]}
-            >
+            <View style={[styles.messageRow, { justifyContent: alignStyle }]}>
                 {!isMe && (
                     <View style={styles.avatarContainer}>
                         <View style={[styles.avatarCircle, { backgroundColor: '#ccc' }]}>
@@ -218,14 +223,19 @@ export default function EditorScreen() {
                     </View>
                 )}
 
-                <View style={[
-                    styles.bubble,
-                    { backgroundColor: bubbleColor },
-                    isMe ? styles.bubbleRightRadius : styles.bubbleLeftRadius
-                ]}>
+                <TouchableOpacity
+                    onLongPress={() => handleDeleteLine(item.id)}
+                    delayLongPress={500}
+                    activeOpacity={0.8}
+                    style={[
+                        styles.bubble,
+                        { backgroundColor: bubbleColor },
+                        isMe ? styles.bubbleRightRadius : styles.bubbleLeftRadius
+                    ]}
+                >
                     <Text style={[styles.messageText, { color: textColor }]}>{item.text}</Text>
-                </View>
-            </TouchableOpacity>
+                </TouchableOpacity>
+            </View>
         );
     }, [theme]);
 
@@ -246,7 +256,7 @@ export default function EditorScreen() {
                     <TextInput
                         value={title}
                         onChangeText={setTitle}
-                        placeholder="タイトル未設定"
+                        placeholder="タイトルを入力"
                         placeholderTextColor={theme.placeholder}
                         style={[styles.headerTitle, { color: theme.headerText }]}
                         textAlign="center"
@@ -258,12 +268,11 @@ export default function EditorScreen() {
                 </TouchableOpacity>
             </View>
 
-            {/* 修正: Androidでは enabled={false} にして、OSのpan機能に任せる */}
             <KeyboardAvoidingView
                 behavior={Platform.OS === "ios" ? "padding" : undefined}
                 enabled={Platform.OS === "ios"}
                 style={{ flex: 1 }}
-                keyboardVerticalOffset={Platform.OS === "ios" ? headerHeight : 0}
+                keyboardVerticalOffset={Platform.OS === "ios" ? 0 : 0}
             >
                 <View ref={viewRef} style={{ flex: 1, backgroundColor: theme.background }}>
                     <FlatList
@@ -333,9 +342,9 @@ const styles = StyleSheet.create({
     },
     headerBtn: { padding: 8 },
     headerCenter: { flex: 1, alignItems: 'center' },
-    headerTitle: { fontSize: 16, fontWeight: 'bold' },
+    headerTitle: { fontSize: 16, fontWeight: 'bold', width: '100%' },
 
-    listContent: { paddingVertical: 16, paddingHorizontal: 10 },
+    listContent: { paddingVertical: 16, paddingHorizontal: 10, paddingBottom: 20 },
 
     messageRow: {
         flexDirection: 'row', marginBottom: 16, width: '100%',
@@ -349,7 +358,7 @@ const styles = StyleSheet.create({
     },
     bubble: {
         paddingVertical: 10, paddingHorizontal: 14,
-        borderRadius: 18, maxWidth: '75%',
+        borderRadius: 18, maxWidth: '80%',
         minHeight: 36,
     },
     bubbleLeftRadius: { borderTopLeftRadius: 4 },
@@ -359,7 +368,6 @@ const styles = StyleSheet.create({
     actionRow: { alignItems: 'center', marginVertical: 12 },
     actionBadge: { paddingVertical: 4, paddingHorizontal: 12, borderRadius: 12 },
     actionText: { fontSize: 12 },
-    hiddenDeleteArea: { position: 'absolute', width: '100%', height: '100%' },
 
     inputContainer: { paddingTop: 8 },
     roleSwitcher: {

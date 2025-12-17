@@ -1,55 +1,90 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import React, { createContext, useContext, useEffect, useState } from 'react';
-import { useColorScheme as useSystemColorScheme } from 'react-native';
+import { useColorScheme } from 'react-native';
 
-type ThemeType = 'light' | 'dark' | 'system';
-
-type ThemeContextType = {
-    theme: ThemeType;
-    setTheme: (theme: ThemeType) => void;
-    effectiveColorScheme: 'light' | 'dark'; // 実際に適用される色（systemの場合は端末設定に依存）
+// テーマカラーの定義
+export const APP_COLORS = {
+    blue: '#007AFF',   // デフォルト
+    red: '#FF3B30',
+    orange: '#FF9500',
+    green: '#34C759',
+    purple: '#AF52DE',
+    pink: '#FF2D55',
+    monochrome: '#8E8E93',
 };
 
-const ThemeContext = createContext<ThemeContextType>({
-    theme: 'system',
-    setTheme: () => { },
-    effectiveColorScheme: 'light',
-});
+export type ThemeColorKey = keyof typeof APP_COLORS;
+type ThemePreference = 'system' | 'light' | 'dark';
 
-export const ThemeProvider = ({ children }: { children: React.ReactNode }) => {
-    const systemColorScheme = useSystemColorScheme();
-    const [theme, setThemeState] = useState<ThemeType>('system');
+type ThemeContextType = {
+    themePreference: ThemePreference;
+    setThemePreference: (pref: ThemePreference) => void;
+    themeColorKey: ThemeColorKey;
+    setThemeColorKey: (key: ThemeColorKey) => void;
+    effectiveColorScheme: 'light' | 'dark';
+    primaryColor: string;
+};
 
-    // アプリ起動時に保存された設定を読み込む
+const ThemeContext = createContext<ThemeContextType | undefined>(undefined);
+
+export function ThemeProvider({ children }: { children: React.ReactNode }) {
+    const systemColorScheme = useColorScheme();
+    const [themePreference, setThemePreferenceState] = useState<ThemePreference>('system');
+    const [themeColorKey, setThemeColorKeyState] = useState<ThemeColorKey>('blue');
+
+    // 初期化時に保存された設定を読み込む
     useEffect(() => {
-        const loadTheme = async () => {
+        const loadSettings = async () => {
             try {
-                const savedTheme = await AsyncStorage.getItem('app_theme');
-                if (savedTheme) {
-                    setThemeState(savedTheme as ThemeType);
-                }
+                const storedPref = await AsyncStorage.getItem('theme_preference');
+                const storedColor = await AsyncStorage.getItem('theme_color');
+
+                if (storedPref) setThemePreferenceState(storedPref as ThemePreference);
+                if (storedColor) setThemeColorKeyState(storedColor as ThemeColorKey);
             } catch (e) {
-                console.error('テーマ読み込みエラー', e);
+                console.error("Failed to load theme settings", e);
             }
         };
-        loadTheme();
+        loadSettings();
     }, []);
 
-    const setTheme = async (newTheme: ThemeType) => {
-        setThemeState(newTheme);
-        await AsyncStorage.setItem('app_theme', newTheme);
+    // 設定保存用ラッパー関数
+    const setThemePreference = async (pref: ThemePreference) => {
+        setThemePreferenceState(pref);
+        await AsyncStorage.setItem('theme_preference', pref);
     };
 
-    // 'system' の場合は端末の設定を使う。それ以外は設定値を優先。
+    const setThemeColorKey = async (key: ThemeColorKey) => {
+        setThemeColorKeyState(key);
+        await AsyncStorage.setItem('theme_color', key);
+    };
+
+    // 実際に適用されるモード（systemの場合は端末設定に従う）
     const effectiveColorScheme =
-        theme === 'system' ? (systemColorScheme ?? 'light') : theme;
+        themePreference === 'system'
+            ? (systemColorScheme ?? 'light')
+            : themePreference;
+
+    const primaryColor = APP_COLORS[themeColorKey];
 
     return (
-        <ThemeContext.Provider value={{ theme, setTheme, effectiveColorScheme }}>
+        <ThemeContext.Provider value={{
+            themePreference,
+            setThemePreference,
+            themeColorKey,
+            setThemeColorKey,
+            effectiveColorScheme,
+            primaryColor
+        }}>
             {children}
         </ThemeContext.Provider>
     );
-};
+}
 
-// どこからでもテーマを使えるようにするフック
-export const useAppTheme = () => useContext(ThemeContext);
+export function useAppTheme() {
+    const context = useContext(ThemeContext);
+    if (context === undefined) {
+        throw new Error('useAppTheme must be used within a ThemeProvider');
+    }
+    return context;
+}

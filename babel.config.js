@@ -3,8 +3,10 @@ module.exports = function (api) {
     api.cache(true);
     return {
         presets: ['babel-preset-expo'],
-        // 修正前: plugins: ['react-native-reanimated/plugin'],
-        // 修正後: ↓ workletsプラグインに変更してください
-        plugins: ['react-native-worklets/plugin'],
+        plugins: [
+            // もし将来的にReanimatedを使う場合はここに記述しますが、
+            // 今は安定動作のために空、またはreanimatedプラグインを記述
+            'react-native-reanimated/plugin',
+        ],
     };
 };
