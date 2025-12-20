@@ -1,6 +1,7 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as Haptics from 'expo-haptics';
 import { useLocalSearchParams, useRouter } from 'expo-router';
+import * as Sharing from 'expo-sharing';
 import debounce from 'lodash.debounce';
 import { ArrowUp, ChevronLeft, Menu, Send, User } from 'lucide-react-native';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
@@ -176,9 +177,27 @@ export default function EditorScreen() {
     const handleShareImage = async () => {
         try {
             if (!viewRef.current) return;
-            const uri = await captureRef(viewRef, { format: 'jpg', quality: 0.8, result: 'tmpfile' });
-            await Share.share({ url: uri, title: title });
-        } catch (e) { Alert.alert("エラー", "保存に失敗しました"); }
+            // view-shotで画像を生成
+            const uri = await captureRef(viewRef, {
+                format: 'jpg',
+                quality: 0.8,
+                result: 'tmpfile'
+            });
+
+            // expo-sharingで共有画面を呼び出す
+            if (await Sharing.isAvailableAsync()) {
+                await Sharing.shareAsync(uri, {
+                    dialogTitle: title || 'ネタ共有',
+                    mimeType: 'image/jpeg',
+                    UTI: 'public.jpeg'
+                });
+            } else {
+                Alert.alert("エラー", "このデバイスでは共有機能が使用できません");
+            }
+        } catch (e) {
+            console.error(e);
+            Alert.alert("エラー", "画像の保存に失敗しました");
+        }
     };
 
     const showMenu = () => {
@@ -186,6 +205,7 @@ export default function EditorScreen() {
         Alert.alert("メニュー", "", [
             { text: "テキスト共有", onPress: handleShareText },
             { text: "画像共有", onPress: handleShareImage },
+            { text: "一覧に戻る", onPress: () => router.back() },
             { text: "全消去", style: "destructive", onPress: handleClearAll },
             { text: "キャンセル", style: "cancel" }
         ]);
@@ -272,9 +292,13 @@ export default function EditorScreen() {
                 behavior={Platform.OS === "ios" ? "padding" : undefined}
                 enabled={Platform.OS === "ios"}
                 style={{ flex: 1 }}
-                keyboardVerticalOffset={Platform.OS === "ios" ? 0 : 0}
+                keyboardVerticalOffset={Platform.OS === "ios" ? headerHeight : 0}
             >
-                <View ref={viewRef} style={{ flex: 1, backgroundColor: theme.background }}>
+                <View
+                    ref={viewRef}
+                    collapsable={false}
+                    style={{ flex: 1, backgroundColor: theme.background }}
+                >
                     <FlatList
                         ref={flatListRef}
                         data={lines}
