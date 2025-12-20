@@ -142,7 +142,8 @@ export default function EditorScreen() {
         if (currentRole === 'boke') setCurrentRole('tsukkomi');
         if (currentRole === 'tsukkomi') setCurrentRole('boke');
 
-        setTimeout(() => flatListRef.current?.scrollToEnd({ animated: true }), 100);
+        // 反転リストなので offset: 0 が一番下（最新）になります
+        setTimeout(() => flatListRef.current?.scrollToOffset({ animated: true, offset: 0 }), 100);
     };
 
     const handleDeleteLine = (lineId: string) => {
@@ -289,8 +290,7 @@ export default function EditorScreen() {
             </View>
 
             <KeyboardAvoidingView
-                behavior={Platform.OS === "ios" ? "padding" : undefined}
-                enabled={Platform.OS === "ios"}
+                behavior={Platform.OS === "ios" ? "padding" : "height"}
                 style={{ flex: 1 }}
                 keyboardVerticalOffset={Platform.OS === "ios" ? headerHeight : 0}
             >
@@ -301,18 +301,19 @@ export default function EditorScreen() {
                 >
                     <FlatList
                         ref={flatListRef}
-                        data={lines}
+                        data={[...lines].reverse()}
+                        inverted
                         keyExtractor={item => item.id}
                         renderItem={renderItem}
                         contentContainerStyle={styles.listContent}
-                        onContentSizeChange={() => flatListRef.current?.scrollToEnd({ animated: true })}
                         style={{ flex: 1 }}
                     />
                 </View>
 
                 <View style={[styles.inputContainer, {
                     backgroundColor: theme.inputBg,
-                    paddingBottom: Math.max(insets.bottom, 10)
+                    // 修正: 固定の10px余白を削除し、SafeAreaのみ確保するように変更
+                    paddingBottom: insets.bottom
                 }]}>
                     <View style={styles.roleSwitcher}>
                         <TouchableOpacity onPress={() => setCurrentRole('boke')} style={{ opacity: currentRole === 'boke' ? 1 : 0.4 }}>
